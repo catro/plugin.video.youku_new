@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # default.py
 import urllib,urllib2,re,xbmcplugin,xbmcgui,subprocess,sys,os,os.path
-import json,time,hashlib,gzip,StringIO
+import json,time,hashlib,gzip,StringIO,HTMLParser,httplib
 from xbmcswift2 import Plugin,xbmcaddon,ListItem
 from collections_backport import OrderedDict
 reload(sys)
@@ -44,6 +44,7 @@ ACTION_CONTEXT_MENU   = 117
 
 plugin = Plugin()
 root_url = 'http://www.youku.com/v_showlist/c0.html'
+html_parser = HTMLParser.HTMLParser()
 
 epcache = plugin.get_storage('epcache', TTL=1440)
 class WindowState:
@@ -88,7 +89,6 @@ class infoWindows(BaseWindow):
         """Init main Application"""
         self.session = kwargs.get('session')
         self.pageData = kwargs.get('sdata')
-        self.siteid=0
         self.upd=True
         BaseWindow.__init__( self, *args, **kwargs )
 
@@ -108,44 +108,48 @@ class infoWindows(BaseWindow):
         data = GetHttpData(self.pageData['url'])
     
         try:
-            name = re.search(r'class="name".*?>(.*?)</span>', data, re.S).group(1)
-            self.getControl(99).setLabel('[COLOR=blue] - [/COLOR]优酷[COLOR=blue] - [/COLOR]'+name)
-            self.getControl( 750 ).setLabel(name)
+            rating = html_parser.unescape(re.search(r'class="ratingstar".*?class="num">(.*?)</em>', data, re.S).group(1))
+            self.getControl(750).setLabel(rating)
         except:
             pass
         try:
-            cover = re.search(r'class="thumb"><img src.*?\'(.*?)\'.*?alt', data, re.S).group(1)
+            name = html_parser.unescape(re.search(r'class="name".*?>(.*?)</span>', data, re.S).group(1))
+            self.getControl(99).setLabel('[COLOR=blue] - [/COLOR]'+name)
+        except:
+            pass
+        try:
+            cover = html_parser.unescape(re.search(r'class="thumb"><img src.*?\'(.*?)\'.*?alt', data, re.S).group(1))
             self.getControl( 749 ).setImage(cover)
         except:
             pass
         try:
             desp = re.search(r'class="detail"(.*?)</div>', data, re.S).group(1)
-            desp = re.search(r'.*style.*?>\s*(.*?)\s*</span>', desp, re.S).group(1)
+            desp = html_parser.unescape(re.search(r'.*style.*?>\s*(.*?)\s*</span>', desp, re.S).group(1)).replace('<br />', '\r\n')
             self.getControl( 756 ).setLabel(desp)
         except:
             pass
         try:
             actors = re.search(r'class="actor">(.*?)</span>', data, re.S).group(1)
             actors = re.compile(r'<a.*?">(.*?)</a>').findall(actors)
-            self.getControl( 755 ).setLabel('/'.join(actors))
+            self.getControl( 755 ).setLabel(html_parser.unescape('/'.join(actors)))
         except:
             pass
         try:
             directors = re.search(r'class="director">(.*?)</span>', data, re.S).group(1)
             directors = re.compile(r'<a.*?">(.*?)</a>').findall(directors)
-            self.getControl( 754 ).setLabel('/'.join(directors))
+            self.getControl( 754 ).setLabel(html_parser.unescape('/'.join(directors)))
         except:
             pass
         try:
             types = re.search(r'showInfo_wrap.*?class="type">(.*?)</span>', data, re.S).group(1)
             types = re.compile(r'<a.*?">(.*?)</a>').findall(types)
-            self.getControl( 751 ).setLabel('/'.join(types))
+            self.getControl( 751 ).setLabel(html_parser.unescape('/'.join(types)))
         except:
             pass
         try:
             areas = re.search(r'class="area">(.*?)</span>', data, re.S).group(1)
             areas = re.compile(r'<a.*?">(.*?)</a>').findall(areas)
-            self.getControl( 752 ).setLabel('/'.join(areas))
+            self.getControl( 752 ).setLabel(html_parser.unescape('/'.join(areas)))
         except:
             pass
         try:
@@ -153,44 +157,54 @@ class infoWindows(BaseWindow):
             self.getControl( 753 ).setLabel(year)
         except:
             pass
-    
-        self.sites=[]
-        
-        if self.pageData['cat']==1:
-            listitem = xbmcgui.ListItem( label="播放") 
-            listitem.setProperty('name',"播放")
+            
+            
+        episodestr = re.search(r'id="episode_wrap">(.*?)<div id="point_wrap',
+                               data, re.S)
+        patt = re.compile(r'(http://v.youku.com/v_show/.*?.html)".*?>([^<]+?)</a')
+        episodes = patt.findall(episodestr.group(1))
+
+        #some catalog not episode, e.g. most movie
+        if not episodes:
+            playurl = re.search(r'class="btnplay" href="(.*?)"', data)
+            if not playurl:
+                playurl = re.search(r'btnplayposi".*?"(http:.*?)"', data)
+            if not playurl:
+                playurl = re.search(r'btnplaytrailer.*?(http:.*?)"', data)
+            self.playlist = [{'title': '播放', 'url': playurl.group(1)}]
+        else:
+            elists = re.findall(r'<li data="(reload_\d+)" >', data)
+            epiurlpart = self.pageData['url'].replace('page', 'episode')
+
+            #httplib can keepalive
+            conn = httplib.HTTPConnection(epiurlpart.split('/')[2])
+            for elist in elists:
+                epiurl = epiurlpart + '?divid={0}'.format(elist)
+                conn.request('GET', '/%s' % '/'.join(epiurl.split('/')[3:]))
+                data = conn.getresponse().read()
+                epimore = patt.findall(data)
+                episodes.extend(epimore)
+            conn.close()
+            
+            self.playlist = [{
+                'title': html_parser.unescape(episode[1].decode('utf-8')),
+                'url': episode[0],
+                } for episode in episodes]
+                
+        self.getControl( 116 ).reset()
+        for item in self.playlist:
+            listitem = xbmcgui.ListItem( label=item['title']) 
             self.getControl( 116 ).addItem( listitem )
-        elif self.pageData['cat']in (2,4):
-            for i in range(int(self.sites[0]['upinfo'])):
-                listitem = xbmcgui.ListItem( label="第"+str(i+1)+"集") 
-                listitem.setProperty('name',"第"+str(i+1)+"集")
-                self.getControl( 116 ).addItem( listitem )
-        elif self.pageData['cat']==3:
-                data=GetHttpData("http://api.m.v.360.cn/android/episode/v12/?id="+self.pageData['id']+"&cat=3&from=0&count=50&site="+self.sites[self.siteid]['site']+"&method=episode.multi&refm=selffull&ss=4")
-                data=json.loads(data[32:])
-                self.allepisode=data['data']['data']['allepisode']
-                for item in self.allepisode:
-                    listitem = xbmcgui.ListItem( label="["+item['name']+"]"+item['desc']) 
-                    listitem.setProperty('name',"["+item['name']+"]"+item['desc'])
-                    self.getControl( 116 ).addItem( listitem )
-
-        self.upd=False
-
-
+            
+        self.upd = False
+        self.setFocusId( 116 )
+        
 
     def onClick( self, controlId ):
         if controlId == 116:
             position = self.getControl( 116 ).getSelectedPosition()
-            if self.pageData['cat']==1:
-                url=self.pageData['sites'][self.siteid]['xstm']
-                play(url,number=position)
-            if self.pageData['cat']in (2,4):
-                data=GetHttpData("http://api.m.v.360.cn/android/episode/v12/?id="+self.pageData['id']+"&cat="+str(self.pageData['cat'])+"&index="+str(position)+"&site="+self.pageData['sites'][self.siteid]['site']+"&quality=&method=episode.single&refm=selffull&ss=4")
-                data=json.loads(data[32:])
-                play(data['data']['data']['xstm'],number=position)
-            if self.pageData['cat']==3:
-                url=self.allepisode[position]['xstm']
-                play(url,number=position)
+            url = self.playlist[position]['url']
+            play(url)
         
 #controlID(500): Main window
 #controlID(501): Navigation window        
@@ -200,7 +214,6 @@ class mainWindows(BaseWindow):
         self.session = None
         self.selectcat=0
         self.oldpos=0
-        self.Tab=False
         self.opt={'cid':'','cat':'all','catname':'全部','year':'all','yearname':'全部','area':'all','areaname':'全部'}
         BaseWindow.__init__( self, *args, **kwargs )
 
@@ -219,6 +232,7 @@ class mainWindows(BaseWindow):
         except:
             self.initCategory()
             self.showCategory()
+            self.setFocusId(500)
             pass
             
     def initCategory(self):
@@ -238,6 +252,8 @@ class mainWindows(BaseWindow):
         for catalog in catalogs:
             title=catalog[-1].decode('utf-8')
             url='http://www.youku.com{0}'.format(catalog[0])
+            if 'c_96' in url:
+                url = url.replace('c_96', 'c_96_s_1_d_1_pt_1')
             self.catlist.append({'title':title, 'url':url})
             listitem = xbmcgui.ListItem( label=title)
             self.getControl( 501 ).addItem( listitem )
@@ -265,7 +281,7 @@ class mainWindows(BaseWindow):
             url = m[3]
             thumbnail = m[0]
             self.menus.append({
-                'label': label,
+                'label': html_parser.unescape(label),
                 'url': url,
                 'thumbnail': thumbnail,
             })
@@ -291,18 +307,15 @@ class mainWindows(BaseWindow):
             self.getControl( 501 ).getSelectedItem().select(True)
             self.selectcat = position
             self.showCategory()
+            self.setFocusId(500)
             
 
     def onFocus( self, controlId ):
         if controlId==501:
             self.getControl( 499 ).setPosition(0,0)
-            if     self.getControl( 501 ).getSelectedPosition() >=2:
-                self.Tab=True
-                self.getControl(498).setPosition(150,0)
 
         elif controlId==500:
             self.getControl( 499 ).setPosition(-130,0)
-            self.getControl(498).setPosition(-150,0)
 
     def onAction(self,action):
         if action.getId() ==2 and self.getFocusId()== 501:
@@ -317,14 +330,16 @@ class mainWindows(BaseWindow):
                 self.getControl(500).selectItem(self.oldpos)
         if action.getId() == ACTION_PARENT_DIR or action.getId() == ACTION_PREVIOUS_MENU:
             dialog = xbmcgui.Dialog()
-            ret = dialog.yesno('优酷', '确定要退出吗?')
-            if ret:
-                if xbmc.Player().isPlaying():
-                    xbmc.Player().stop()
-                self.doClose()
-                return True
-            else:
-                return False
+            #ret = dialog.yesno('优酷', '确定要退出吗?')
+            #if ret:
+            #    if xbmc.Player().isPlaying():
+            #        xbmc.Player().stop()
+            #    self.doClose()
+            #    return True
+            #else:
+            #    return False
+            self.doClose()
+            return True
 
 
     def update_title(self,name):
@@ -376,19 +391,23 @@ def GetHttpData(url):
 
 
 def play(url):
-    flvcdurl='http://www.flvcd.com/parse.php?format=super&kw='+urllib.quote_plus(url)
-    result = GetHttpData(flvcdurl)
-    foobars = re.compile('(http://k.youku.com/.*)"\starget', re.M).findall(result)
-    if len(foobars)<=0:
-        return
-    playlist = xbmc.PlayList(1)
-    playlist.clear()
-    for i in range(0,len(foobars)):
-        title =" 第"+str(i+1)+"/"+str(len(foobars))+"节"
-        listitem=xbmcgui.ListItem(title)
-        listitem.setInfo(type="Video",infoLabels={"Title":title})
-        playlist.add(foobars[i], listitem)
-    xbmc.Player().play(playlist)
+    try:
+        flvcdurl='http://www.flvcd.com/parse.php?format=super&kw='+urllib.quote_plus(url)
+        result = GetHttpData(flvcdurl)
+        foobars = re.compile('(http://k.youku.com/.*)"\starget', re.M).findall(result)
+        if len(foobars) < 1:
+            xbmcgui.Dialog().ok('提示框', '付费视频，无法播放')
+            return
+        playlist = xbmc.PlayList(1)
+        playlist.clear()
+        for i in range(0,len(foobars)):
+            title =" 第"+str(i+1)+"/"+str(len(foobars))+"节"
+            listitem=xbmcgui.ListItem(title)
+            listitem.setInfo(type="Video",infoLabels={"Title":title})
+            playlist.add(foobars[i], listitem)
+        xbmc.Player().play(playlist)
+    except:
+        xbmcgui.Dialog().ok('提示框', '解析地址异常，无法播放')
 
 
 class VstSession:
