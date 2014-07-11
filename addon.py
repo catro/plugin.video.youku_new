@@ -13,7 +13,7 @@ except:
     from xbmc import Keyboard  
     pass
 # Plugin constants 
-__addonid__ = "plugin.video.youkuflvcd"
+__addonid__ = "plugin.video.youku_new"
 __addon__ = xbmcaddon.Addon(id=__addonid__)
 __cwd__ = __addon__.getAddonInfo('path')
 __profile__    = xbmc.translatePath( __addon__.getAddonInfo('profile') )
