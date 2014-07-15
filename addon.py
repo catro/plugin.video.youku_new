@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 # default.py
 import urllib,urllib2,re,xbmcplugin,xbmcgui,subprocess,sys,os,os.path
 import json,time,hashlib,gzip,StringIO,HTMLParser,httplib
@@ -361,18 +361,11 @@ def openWindow(window_name,session=None,**kwargs):
         
 
 def GetHttpData(url):
-    xbmc.executebuiltin("ShowBusyDialog")
-    if url in epcache:
-        plugin.log.error("From Cache:"+url)
-        return epcache[url]
-    else:
-        plugin.log.error("Update:"+url)
     req = urllib2.Request(url)
-    req.add_header('User-Agent', "360 Video App/2.6.1 Android/4.1.1 QIHU")
-    #req.add_header('User-Agent', 'Mozilla/5.0 (X11; Linux x86_64) {0}{1}'.
-    #               format('AppleWebKit/537.36 (KHTML, like Gecko) ',
-    #                      'Chrome/28.0.1500.71 Safari/537.36'))
-    #req.add_header('Accept-encoding', 'gzip')
+    req.add_header('User-Agent', 'Mozilla/5.0 (X11; Linux x86_64) {0}{1}'.
+                   format('AppleWebKit/537.36 (KHTML, like Gecko) ',
+                          'Chrome/28.0.1500.71 Safari/537.36'))
+    req.add_header('Accept-encoding', 'gzip')
     response = urllib2.urlopen(req)
     httpdata = response.read()
     if response.headers.get('content-encoding', None) == 'gzip':
@@ -385,13 +378,35 @@ def GetHttpData(url):
         charset = match[0].lower()
         if (charset != 'utf-8') and (charset != 'utf8'):
             httpdata = unicode(httpdata, charset).encode('utf8')
-    epcache[url] = httpdata
-    xbmc.executebuiltin('HideBusyDialog')
     return httpdata
 
 
 def play(url):
     try:
+        stypes = ['hd2', 'mp4', 'flv']
+        vid = url[-18:-5]
+        moviesurl="http://v.youku.com/player/getPlayList/VideoIDS/{0}/ctype/12/ev/1".format(vid)
+        result = GetHttpData(moviesurl)
+        movinfo = json.loads(result.replace('\r\n',''))
+        movdat = movinfo['data'][0]
+        streamfids = movdat['streamfileids']
+        video_id = movdat['videoid']
+        stype = 'flv'
+
+        if len(streamfids) > 1:
+            selstypes = [v for v in stypes if v in streamfids]
+            stype = selstypes[0]
+        
+        playurl = r'http://v.youku.com/player/getM3U8/vid/' + vid + r'/type/' + stype + '/video.m3u8'
+        playlist = xbmc.PlayList(1)
+        playlist.clear()
+        title =" 第"+str(1)+"/"+str(1)+"节"
+        listitem=xbmcgui.ListItem(title)
+        listitem.setInfo(type="Video",infoLabels={"Title":title})
+        playlist.add(playurl, listitem)
+        xbmc.Player().play(playlist)
+        return
+        
         flvcdurl='http://www.flvcd.com/parse.php?format=super&kw='+urllib.quote_plus(url)
         result = GetHttpData(flvcdurl)
         foobars = re.compile('(http://k.youku.com/.*)"\starget', re.M).findall(result)
