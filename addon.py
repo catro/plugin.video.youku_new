@@ -47,11 +47,6 @@ root_url = 'http://www.youku.com/v_showlist/c0.html'
 html_parser = HTMLParser.HTMLParser()
 
 epcache = plugin.get_storage('epcache', TTL=1440)
-class WindowState:
-    def __init__(self):
-        self.items = None
-        self.listIndex = 0
-        self.settings = {}
 
 class BaseWindow(xbmcgui.WindowXML):
     def __init__( self, *args, **kwargs):
@@ -89,7 +84,6 @@ class infoWindows(BaseWindow):
         """Init main Application"""
         self.session = kwargs.get('session')
         self.pageData = kwargs.get('sdata')
-        self.upd=True
         BaseWindow.__init__( self, *args, **kwargs )
 
     def onInit( self ):
@@ -101,8 +95,7 @@ class infoWindows(BaseWindow):
             except:
                 print 'Unhandled Error'
                 self.close()
-        if self.upd:
-            self.updates()
+        self.updates()
 
     def updates(self):
         data = GetHttpData(self.pageData['url'])
@@ -196,7 +189,6 @@ class infoWindows(BaseWindow):
             listitem = xbmcgui.ListItem( label=item['title']) 
             self.getControl( 116 ).addItem( listitem )
             
-        self.upd = False
         self.setFocusId( 116 )
         
 
@@ -213,8 +205,6 @@ class mainWindows(BaseWindow):
         """Init main Application"""
         self.session = None
         self.selectcat=0
-        self.oldpos=0
-        self.opt={'cid':'','cat':'all','catname':'全部','year':'all','yearname':'全部','area':'all','areaname':'全部'}
         BaseWindow.__init__( self, *args, **kwargs )
 
     def onInit( self ):
@@ -285,7 +275,11 @@ class mainWindows(BaseWindow):
                 'url': url,
                 'thumbnail': thumbnail,
             })
-            listitem = xbmcgui.ListItem( label=label,thumbnailImage=thumbnail)
+            if url in epcache: 
+                listitem = epcache[url]
+            else:
+                listitem = xbmcgui.ListItem( label=label,thumbnailImage=thumbnail)
+                epcache[url] = listitem
             self.getControl( 500 ).addItem( listitem )
         
         nextpage = re.search(r'class="next".*?href="(.*?)"', data, re.S).group(1)
@@ -323,11 +317,11 @@ class mainWindows(BaseWindow):
         elif action.getId()==4 and self.getFocusId()== 500:
             posid=self.getControl( 500 ).getSelectedPosition()
             tot=self.getControl( 500 ).size()
-            self.oldpos=self.getControl( 500 ).getSelectedPosition()
+            oldpos=self.getControl( 500 ).getSelectedPosition()
             if tot-posid<=10:
-                self.oldpos=self.getControl( 500 ).getSelectedPosition()
+                oldpos=self.getControl( 500 ).getSelectedPosition()
                 self.appendCategory(self.catlist[self.selectcat]['nextpage'])
-                self.getControl(500).selectItem(self.oldpos)
+                self.getControl(500).selectItem(oldpos)
         if action.getId() == ACTION_PARENT_DIR or action.getId() == ACTION_PREVIOUS_MENU:
             dialog = xbmcgui.Dialog()
             #ret = dialog.yesno('优酷', '确定要退出吗?')
