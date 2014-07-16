@@ -46,7 +46,7 @@ plugin = Plugin()
 root_url = 'http://www.youku.com/v_showlist/c0.html'
 html_parser = HTMLParser.HTMLParser()
 
-epcache = plugin.get_storage('epcache', TTL=1440)
+epcache = plugin.get_storage('epcache', TTL=10080)
 
 class BaseWindow(xbmcgui.WindowXML):
     def __init__( self, *args, **kwargs):
@@ -348,6 +348,7 @@ def openWindow(window_name,session=None,**kwargs):
             w = mainWindows(windowFile , xbmc.translatePath(__addon__.getAddonInfo('path')), "Default",**kwargs)
         elif window_name == 'info':
             w = infoWindows(windowFile , xbmc.translatePath(__addon__.getAddonInfo('path')), "Default",session=session,**kwargs)
+
         else:
             return #Won't happen :)
         w.doModal()            
